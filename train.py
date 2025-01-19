@@ -8,81 +8,100 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from sklearn.metrics import classification_report, ConfusionMatrixDisplay
 
-# Set paths for subsets
-base_dir = "mushrooms"
-train_dir = os.path.join(base_dir, "train")
-val_dir = os.path.join(base_dir, "validation")
-test_dir = os.path.join(base_dir, "test")
+# Set paths for static dataset
+base_dir = "mushrooms"  # Base directory containing the dataset
+train_dir = os.path.join(base_dir, "train")  # Directory for training data
+val_dir = os.path.join(base_dir, "validation")  # Directory for validation data
+test_dir = os.path.join(base_dir, "test")  # Directory for test data
 
 # Set parameters
-img_height, img_width = 400, 400
-batch_size = 32
+img_height, img_width = 400, 400  # Standard size to which all images will be resized
+batch_size = 32  # Number of samples per batch during training and validation
 
 # Check for GPU availability
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Use GPU if available
 print(f"Using device: {device}")
 if torch.cuda.is_available():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
     for i in range(torch.cuda.device_count()):
         print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
-# Data Preprocessing
+# Define data transformations for preprocessing
 data_transforms = {
     'train': transforms.Compose([
-        transforms.Resize((img_height, img_width)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(20),
+        transforms.Resize((img_height, img_width)),  # Resize images to standard dimensions
+        transforms.RandomHorizontalFlip(),  # Randomly flip images horizontally (augmentation)
+        transforms.RandomRotation(20),  # Randomly rotate images up to 20 degrees (augmentation)
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Normalize using ImageNet statistics
     ]),
     'test': transforms.Compose([
-        transforms.Resize((img_height, img_width)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Resize((img_height, img_width)),  # Resize images to standard dimensions
+        transforms.ToTensor(),  # Convert images to PyTorch tensors
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Normalize using ImageNet statistics
     ])
 }
 
-# Load datasets
+# Load datasets into PyTorch DataLoader objects
 data_loaders = {
     'train': DataLoader(datasets.ImageFolder(train_dir, transform=data_transforms['train']), batch_size=batch_size, shuffle=True),
     'validation': DataLoader(datasets.ImageFolder(val_dir, transform=data_transforms['test']), batch_size=batch_size, shuffle=False),
     'test': DataLoader(datasets.ImageFolder(test_dir, transform=data_transforms['test']), batch_size=batch_size, shuffle=False)
 }
 
+# Determine the number of classes in the dataset
 num_classes = len(datasets.ImageFolder(train_dir).classes)
 
 # Define pre-trained models
-model1 = models.mobilenet_v2(pretrained=True)
-model1.classifier[1] = nn.Linear(model1.last_channel, num_classes)
-model1 = model1.to(device)
+# Model 1: MobileNetV2
+model1 = models.mobilenet_v2(pretrained=True)  # Load pre-trained MobileNetV2
+model1.classifier[1] = nn.Linear(model1.last_channel, num_classes)  # Modify the classifier to match the dataset classes
+model1 = model1.to(device)  # Move the model to the selected device
 
-model2 = models.resnet18(pretrained=True)
-model2.fc = nn.Linear(model2.fc.in_features, num_classes)
-model2 = model2.to(device)
+# Model 2: ResNet18
+model2 = models.resnet18(pretrained=True)  # Load pre-trained ResNet18
+model2.fc = nn.Linear(model2.fc.in_features, num_classes)  # Modify the fully connected layer to match the dataset classes
+model2 = model2.to(device)  # Move the model to the selected device
 
 # Define loss function and optimizers
-criterion = nn.CrossEntropyLoss()
-optimizer1 = optim.Adam(model1.parameters(), lr=0.001)
-optimizer2 = optim.Adam(model2.parameters(), lr=0.001)
+criterion = nn.CrossEntropyLoss()  # Loss function for multi-class classification
+optimizer1 = optim.Adam(model1.parameters(), lr=0.001)  # Optimizer for MobileNetV2
+optimizer2 = optim.Adam(model2.parameters(), lr=0.001)  # Optimizer for ResNet18
 
 # Training function
 def train_model(model, optimizer, criterion, train_loader, val_loader, num_epochs=40, patience=5, model_name="model.pth"):
-    best_val_loss = float('inf')
-    early_stop_counter = 0
-    train_acc, val_acc, train_losses, val_losses = [], [], [], []
-    best_epoch = 0
+    """
+    Parameters:
+    - model: PyTorch model to be trained
+    - optimizer: Optimizer for updating model weights
+    - criterion: Loss function
+    - train_loader: DataLoader for training data
+    - val_loader: DataLoader for validation data
+    - num_epochs: Maximum number of training epochs
+    - patience: Number of epochs to wait for improvement before stopping
+    - model_name: File name to save the best model
+
+    Returns:
+    - Training and validation metrics for each epoch
+    """
+    best_val_loss = float('inf')  # Initialize the best validation loss
+    early_stop_counter = 0  # Counter for early stopping
+    train_acc, val_acc, train_losses, val_losses = [], [], [], []  # Lists to store metrics
+    best_epoch = 0  # Epoch with the best validation loss
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
-        model.train()
+        model.train()  # Set the model to training mode
         running_loss, correct = 0.0, 0
+
+        # Training loop
         for inputs, labels in tqdm(train_loader, desc="Training", leave=False):
             inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()  # Reset gradients
+            outputs = model(inputs)  # Forward pass
+            loss = criterion(outputs, labels)  # Compute loss
+            loss.backward()  # Backward pass
+            optimizer.step()  # Update weights
 
             running_loss += loss.item() * inputs.size(0)
             correct += (outputs.argmax(1) == labels).sum().item()
@@ -91,7 +110,8 @@ def train_model(model, optimizer, criterion, train_loader, val_loader, num_epoch
         train_acc.append(correct / len(train_loader.dataset))
         train_losses.append(train_loss)
 
-        model.eval()
+        # Validation loop
+        model.eval()  # Set the model to evaluation mode
         running_loss, correct = 0.0, 0
         with torch.no_grad():
             for inputs, labels in tqdm(val_loader, desc="Validation", leave=False):
@@ -109,6 +129,7 @@ def train_model(model, optimizer, criterion, train_loader, val_loader, num_epoch
         print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc[-1]:.4f}")
         print(f"Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_acc[-1]:.4f}")
 
+        # Save the best model based on validation loss
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch + 1
@@ -118,16 +139,16 @@ def train_model(model, optimizer, criterion, train_loader, val_loader, num_epoch
         else:
             early_stop_counter += 1
 
+        # Trigger early stopping
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
 
     return train_acc, val_acc, train_losses, val_losses, best_epoch
 
-# Train models
+# Train the models
 train_acc1, val_acc1, train_loss1, val_loss1, best_epoch1 = train_model(model1, optimizer1, criterion, data_loaders['train'], data_loaders['validation'], model_name="mobilenetv2.pth")
 train_acc2, val_acc2, train_loss2, val_loss2, best_epoch2 = train_model(model2, optimizer2, criterion, data_loaders['train'], data_loaders['validation'], model_name="resnet18.pth")
-
 
 # MobileNetV2 Plots
 plt.figure(figsize=(10, 6))
